@@ -1,0 +1,12 @@
+{
+  "name": "controledeos",
+  "private": true,
+  "scripts": {
+    "start": "node dev/server.js",
+    "simulate": "node dev/simulate_app.js"
+  },
+  "dependencies": {
+    "xlsx": "^0.18.5",
+    "xlsx-js-style": "^1.2.0"
+  }
+}

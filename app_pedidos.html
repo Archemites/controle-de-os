@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+<title>Controle de Pedidos de Compra - Teraup Soluções</title>
+<!-- xlsx-js-style: fork do SheetJS 0.18.5 que ESCREVE estilos de célula (cell.s).
+     O build community oficial (xlsx@0.18.5) lê cell.s mas descarta na escrita,
+     então o alinhamento centralizado da exportação não chegava no arquivo final.
+     Mesma API/global XLSX — nenhuma outra chamada precisou mudar. -->
+<script defer src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<!-- pdf.js: extração de texto dos PDFs lidos em "Leitura de PDF" (build clássico, expõe o global pdfjsLib) -->
+<script defer src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+  <link rel="stylesheet" href="css/app_pedidos.css">
+</head>
+<body>
+
+<input type="file" id="fileInput" accept=".xlsx" class="hidden-file-input" title="Selecionar planilha .xlsx" aria-label="Selecionar planilha .xlsx">
+<input type="file" id="pdfInput" accept=".pdf" class="hidden-file-input" title="Selecionar arquivo PDF" aria-label="Selecionar arquivo PDF">
+
+<main id="main">
+  <div id="appTabs">
+    <a class="app-tab" href="./">Controle de Medições</a>
+    <a class="app-tab active" href="app_pedidos.html">Controle de Pedidos de Compra</a>
+  </div>
+  <div id="topbar">
+    <div>
+      <h1>Controle de Pedidos de Compra<span class="count-badge" id="rowCount"></span></h1>
+    </div>
+    <div id="topbarActions">
+      <button id="openBtn">Importar Pedidos</button>
+      <button type="button" id="addBtn">+ Adicionar Pedido</button>
+      <button type="button" id="pdfBtn">Leitura de PDF</button>
+      <button type="button" id="downloadBtn">Baixar planilha</button>
+      <button type="button" id="themeToggle" title="Alternar tema claro/escuro">&#9680;</button>
+    </div>
+  </div>
+  <div id="fileStatus">Nenhuma planilha carregada ainda. Clique em "Importar Pedidos" para abrir o arquivo "Controle Pedidos de Compra.xlsx".</div>
+  <div id="subTabs">
+    <button class="sub-tab active" id="tabPedidos" data-tab="pedidos">Pedidos <span class="tab-count" id="pedidosCount"></span></button>
+    <button class="sub-tab" id="tabLixeira" data-tab="lixeira">Lixeira <span class="tab-count" id="lixeiraCount"></span></button>
+  </div>
+  <div id="searchBar">
+    <div id="searchBarRow">
+      <div id="searchInputCol">
+        <input type="text" id="searchInput" placeholder="Pesquisar por O.S, Número Pedido, GAP ou Cliente...">
+        <div id="searchFilters">
+          <span id="searchFiltersLabel">Filtros de pesquisa:</span>
+          <button type="button" class="filter-chip active" id="filterOS" data-field="O.S">O.S</button>
+          <button type="button" class="filter-chip active" id="filterPedido" data-field="Número Pedido">Número Pedido</button>
+          <button type="button" class="filter-chip active" id="filterGap" data-field="Gap">Gap</button>
+          <button type="button" class="filter-chip active" id="filterCliente" data-field="Cliente">Cliente</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="tableWrap">
+    <div id="tableSpacer"></div>
+    <div class="empty-state" id="emptyState">
+      Nenhuma planilha carregada. Clique em "Importar Pedidos" para abrir o arquivo "Controle Pedidos de Compra.xlsx".
+    </div>
+    <table id="dataTable" class="initially-hidden">
+      <thead>
+        <tr id="headerRow"></tr>
+        <tr id="totalsRow" class="totals-row"></tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+</main>
+
+<div id="pdfModalOverlay">
+  <div id="pdfPanel">
+    <h2>Leitura de PDF</h2>
+    <p id="pdfPanelText">Selecione um arquivo .pdf para procurar O.S, GAP, Pedido de Compra (Nº do Pedido), Valor Faturado (Valor Líquido), Data e Cliente.</p>
+    <div id="pdfResultados"></div>
+    <button id="pdfUsarBtn" disabled>Adicionar como novo pedido</button>
+    <button id="pdfOutroBtn">Escolher outro PDF</button>
+    <button id="pdfFecharBtn">Fechar</button>
+  </div>
+</div>
+
+<div id="addModalOverlay">
+  <div id="addModal">
+    <h2 id="addPanelTitle">Adicionar Pedido</h2>
+    <div class="addField">
+      <label for="f_recebimento">Recebimento Pedido</label>
+      <input type="date" id="f_recebimento">
+    </div>
+    <div class="addField">
+      <label for="f_numeroPedido">Número Pedido</label>
+      <input type="text" id="f_numeroPedido">
+    </div>
+    <div class="addField">
+      <label for="f_valor">Valor</label>
+      <input type="text" id="f_valor" placeholder="Ex: 1234,56">
+    </div>
+    <div class="addField">
+      <label for="f_osPedido">O.S</label>
+      <input type="text" id="f_osPedido">
+    </div>
+    <div class="addField">
+      <label for="f_cliente">Cliente</label>
+      <input type="text" id="f_cliente">
+    </div>
+    <div class="addField">
+      <label for="f_gapPedido">Gap</label>
+      <input type="text" id="f_gapPedido">
+    </div>
+    <div class="addField">
+      <label for="f_observacao">Observação</label>
+      <input type="text" id="f_observacao">
+    </div>
+    <div id="addFormMsg"></div>
+    <div id="addModalActions">
+      <button type="button" id="addCancelBtn">Cancelar</button>
+      <button type="button" id="addSaveBtn">Salvar</button>
+    </div>
+  </div>
+</div>
+
+  <script defer src="js/app_pedidos.js"></script>
+
+</body>
+</html>

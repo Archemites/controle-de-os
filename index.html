@@ -1,0 +1,216 @@
+ <!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+<title>Medições Enviadas - Teraup Soluções</title>
+<!-- xlsx-js-style: fork do SheetJS 0.18.5 que ESCREVE estilos de célula (cell.s).
+     O build community oficial (xlsx@0.18.5) lê cell.s mas descarta na escrita,
+     então o alinhamento centralizado da exportação não chegava no arquivo final.
+     Mesma API/global XLSX — nenhuma outra chamada precisou mudar. -->
+<script defer src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<!-- pdf.js: extração de texto dos PDFs lidos em "Leitura de PDF" (build clássico, expõe o global pdfjsLib) -->
+<script defer src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+  <link rel="stylesheet" href="css/index.css">
+</head>
+<body>
+
+<input type="file" id="fileInput" accept=".xlsx" class="hidden-file-input" title="Selecionar planilha .xlsx" aria-label="Selecionar planilha .xlsx">
+<input type="file" id="pdfInput" accept=".pdf" class="hidden-file-input" title="Selecionar arquivo PDF" aria-label="Selecionar arquivo PDF">
+
+<div id="formModalOverlay">
+  <div id="formPanel">
+    <h2 id="formPanelTitle">Cadastrar Medição</h2>
+    <div class="field">
+      <label for="f_os">O.S</label>
+      <input type="text" id="f_os" placeholder="Ex: 19408611">
+    </div>
+    <div class="field">
+      <label for="f_mes">Mês Envio Medição</label>
+      <select id="f_mes">
+        <option value="Janeiro">Janeiro</option>
+        <option value="Fevereiro">Fevereiro</option>
+        <option value="Março">Março</option>
+        <option value="Abril">Abril</option>
+        <option value="Maio">Maio</option>
+        <option value="Junho">Junho</option>
+        <option value="Julho">Julho</option>
+        <option value="Agosto">Agosto</option>
+        <option value="Setembro">Setembro</option>
+        <option value="Outubro">Outubro</option>
+        <option value="Novembro">Novembro</option>
+        <option value="Dezembro">Dezembro</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="f_vistoria">Vistoria Projeto</label>
+      <input type="date" id="f_vistoria">
+    </div>
+    <div class="field">
+      <label for="f_ano">Ano</label>
+      <input type="number" id="f_ano" placeholder="Ex: 2026">
+    </div>
+    <div class="field">
+      <label for="f_gap">GAP</label>
+      <input type="text" id="f_gap" placeholder="Ex: GAP-33607">
+    </div>
+    <div class="field">
+      <label for="f_envio">Envio Medição</label>
+      <input type="date" id="f_envio">
+    </div>
+    <div class="field">
+      <label for="f_sla">Sla Envio Medição (dias)</label>
+      <input type="text" id="f_sla" readonly>
+      <div class="readonly-hint">Calculado automaticamente: dias corridos entre "Envio Medição" e hoje.</div>
+    </div>
+    <div class="field">
+      <label for="f_valorMedicao">Valor Medição Enviadas (R$)</label>
+      <input type="number" step="0.01" id="f_valorMedicao" placeholder="0,00">
+    </div>
+    <div class="field">
+      <label for="f_engenheiro">Engenheiro Acesso</label>
+      <input type="text" id="f_engenheiro">
+    </div>
+    <div class="field">
+      <label for="f_projetista">Projetista</label>
+      <input type="text" id="f_projetista">
+    </div>
+    <div class="field">
+      <label for="f_regional">Regional</label>
+      <input type="text" id="f_regional" placeholder="Ex: SÃO PAULO">
+    </div>
+    <div class="field">
+      <label for="f_pedido">Pedido de Compra</label>
+      <input type="text" id="f_pedido" placeholder="Ex: 4500348837">
+    </div>
+    <div class="field">
+      <label for="f_valorFaturado">Valor Faturado (R$)</label>
+      <input type="number" step="0.01" id="f_valorFaturado" placeholder="0,00">
+    </div>
+    <div class="field">
+      <label for="f_medicaoTerceiros">Medição Terceiros (R$)</label>
+      <input type="number" step="0.01" id="f_medicaoTerceiros" placeholder="0,00">
+    </div>
+    <div class="field">
+      <label for="f_custosDiversos">Custos Diversos (R$)</label>
+      <input type="number" step="0.01" id="f_custosDiversos" placeholder="0,00">
+    </div>
+    <div class="field">
+      <label for="f_custoArt">Custo ART (R$)</label>
+      <input type="number" step="0.01" id="f_custoArt" placeholder="0,00">
+    </div>
+    <div class="field">
+      <label for="f_custoTotal">Custo Total (R$)</label>
+      <input type="text" id="f_custoTotal" readonly>
+      <div class="readonly-hint">Calculado automaticamente: Custos Diversos + Custo ART.</div>
+    </div>
+
+    <button id="saveRowBtn">Salvar Medição</button>
+    <button id="cancelBtn">Cancelar</button>
+    <div id="formMsg"></div>
+  </div>
+</div>
+
+<div id="importModalOverlay">
+  <div id="importPanel">
+    <h2>Importar planilha</h2>
+    <p id="importPanelText">Já existem medições carregadas. Deseja substituir a lista atual pelos dados da planilha importada, ou apenas adicionar as novas medições à lista existente?</p>
+    <button id="importReplaceBtn">Substituir lista atual</button>
+    <button id="importAppendBtn">Adicionar à lista existente</button>
+    <button id="importCancelBtn">Cancelar</button>
+  </div>
+</div>
+
+<div id="pdfModalOverlay">
+  <div id="pdfPanel">
+    <h2>Leitura de PDF</h2>
+    <p id="pdfPanelText">Selecione um arquivo .pdf para procurar O.S, GAP, Pedido de Compra (Nº do Pedido), Valor Faturado (Valor Líquido), Data e Cliente.</p>
+    <div id="pdfResultados"></div>
+    <button id="pdfUsarBtn" disabled>Atualizar não faturado + criar pedido</button>
+    <button id="pdfOutroBtn">Escolher outro PDF</button>
+    <button id="pdfFecharBtn">Fechar</button>
+  </div>
+</div>
+
+<div id="dupModalOverlay">
+  <div id="dupPanel">
+    <h2 id="dupPanelTitle">Item duplicado</h2>
+    <p id="dupPanelSummary"></p>
+    <div id="dupItemInfo"></div>
+    <button id="dupSubstituirBtn">Substituir o existente</button>
+    <button id="dupAdicionarBtn">Adicionar mesmo assim (manter os dois)</button>
+    <button id="dupIgnorarBtn">Não adicionar este</button>
+    <label id="dupAplicarTodosWrap"><input type="checkbox" id="dupAplicarTodos"> Aplicar esta ação a todos os demais duplicados</label>
+  </div>
+</div>
+
+<main id="main">
+  <div id="appTabs">
+    <a class="app-tab active" href="./">Controle de Medições</a>
+    <a class="app-tab" href="app_pedidos.html">Controle de Pedidos de Compra</a>
+  </div>
+  <div id="topbar">
+    <div>
+      <h1>Controle de Medições<span class="count-badge" id="statusCount"></span><span class="count-badge" id="rowCount"></span></h1>
+    </div>
+    <div id="topbarActions">
+      <button id="openBtn">Importar Medições</button>
+      <button id="pdfBtn">Leitura de PDF</button>
+      <button id="cadastrarBtn" disabled>Cadastrar Medição</button>
+      <button id="downloadBtn" disabled>Baixar planilha atualizada</button>
+      <button type="button" id="themeToggle" title="Alternar tema claro/escuro">&#9680;</button>
+    </div>
+  </div>
+  <div id="fileStatus">Nenhuma planilha carregada ainda. Clique em "Importar Medições" para abrir o arquivo "Medições enviadas - Teraup Soluções.xlsx".</div>
+  <div id="searchBar">
+    <div id="searchBarRow">
+      <div id="searchInputCol">
+        <input type="text" id="searchInput" placeholder="Pesquisar por O.S, GAP ou Pedido de Compra...">
+        <div id="searchFilters">
+          <span id="searchFiltersLabel">Filtros de pesquisa:</span>
+          <button type="button" class="filter-chip active" id="filterOS" data-field="O.S">O.S</button>
+          <button type="button" class="filter-chip active" id="filterGap" data-field="GAP">GAP</button>
+          <button type="button" class="filter-chip active" id="filterPedido" data-field="Pedido de Compra">Pedido de Compra</button>
+        </div>
+      </div>
+      <div id="columnsPanelWrap">
+        <div id="columnsPanel">
+          <div id="columnsPanelHead">
+            <h3>Colunas:</h3>
+            <div id="columnsPanelActions">
+              <button type="button" id="columnsShowAll">Mostrar todas</button>
+              <button type="button" id="columnsHideAll">Ocultar todas</button>
+            </div>
+          </div>
+          <div id="columnsDivider"></div>
+          <div id="columnsList"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="subTabs" class="initially-hidden">
+    <button class="sub-tab active" id="tabComPedido" data-tab="comPedido">Com Pedido (Faturados) <span class="tab-count" id="comPedidoCount"></span></button>
+    <button class="sub-tab" id="tabSemPedido" data-tab="semPedido">Sem Pedido (Não Faturados) <span class="tab-count" id="semPedidoCount"></span></button>
+    <button class="sub-tab" id="tabEnvios" data-tab="envios">Envios <span class="tab-count" id="enviosCount"></span></button>
+    <button class="sub-tab" id="tabACobrar" data-tab="aCobrar">A Cobrar <span class="tab-badge initially-hidden" id="aCobrarBadge">0</span></button>
+    <button class="sub-tab" id="tabLixeira" data-tab="lixeira">Lixeira <span class="tab-count" id="lixeiraCount"></span></button>
+  </div>
+  <div id="tableWrap">
+    <div class="empty-state" id="emptyState">
+      Nenhuma planilha carregada. Clique em "Abrir planilha (.xlsx)" na barra lateral.
+    </div>
+    <table id="dataTable" class="initially-hidden">
+      <thead>
+        <tr id="headerRow"></tr>
+        <tr id="totalsRow" class="totals-row"></tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+</main>
+
+  <script defer src="js/index.js"></script>
+</body>
+</html>
