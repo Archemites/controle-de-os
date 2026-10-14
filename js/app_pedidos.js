@@ -454,17 +454,54 @@ function extrairData(texto) {
   return qualquer ? qualquer[1].replace(/[.\-]/g, '/') : '';
 }
 
+// Extrai o número do pedido de compra. Prioriza explicitamente os rótulos de
+// "Nº do Pedido" / "Número do Pedido", exigindo que o valor contenha dígitos,
+// evitando falsos positivos como "pedido de compra: unidade de medida...".
+function extrairPedido(texto) {
+  const reRotuloPedido = /(?:\bn[ºo°\.]?\s*(?:do\s*|de\s*)?pedido|\bn[úu]mero\s*(?:do\s*|de\s*)?pedido|\bpedido\s*n[ºo°\.]?)\s*[:\-]?\s*([A-Za-z0-9\/\-]{4,20})/gi;
+  let m;
+  while ((m = reRotuloPedido.exec(texto)) !== null) {
+    const cand = m[1].trim();
+    if (/\d/.test(cand) && !/^(?:unidade|medida|compra)$/i.test(cand)) {
+      return cand;
+    }
+  }
+
+  const rePedidoCompra = /\bpedido\s+de\s+compra\s*[:\-]?\s*([A-Za-z0-9\/\-]{4,20})/gi;
+  while ((m = rePedidoCompra.exec(texto)) !== null) {
+    const cand = m[1].trim();
+    if (/\d/.test(cand) && !/^(?:unidade|medida|compra)$/i.test(cand)) {
+      return cand;
+    }
+  }
+
+  return '';
+}
+
 // O nome do cliente vem sempre depois do protocolo, na linha do circuito:
 //   Circuito: 010354387 - PROTOCOLO: 202530482590-1 - UNIDAS LOCADORA S A
-// Ou seja: o que sobra depois de "PROTOCOLO: <código> - ", até o próximo bloco
-// do documento. Fallback para os rótulos usuais ("Cliente:", "Razão Social:").
+// ou:
+//   SÃO PAULO - PAGAMENTO: TERAUP - OS: ... / PROTOCOLO: 202415304874-1 / CLIENTE: PORTOFINO GESTAO DE RECURSOS LTDA
+// Remove eventuais prefixos como "CLIENTE:", "NOME:" ou ":" que fiquem antes do nome.
 function extrairCliente(texto) {
   const PARADA = /\s+(?:Valor|Pre[çc]o|Circuito|Item|Material|Denomina|Qt\.|Dt\.|CNPJ|CPF|Endere[çc]o|O\.?S\b|GAP|Pedido|Total|Observa)/i;
+  let bruto = '';
   const prot = texto.match(/PROTOCOLO\s*:?\s*[\w.\-]+\s*[-–\/]\s*(.{3,80})/i);
-  // Só vale o nome que vem depois do protocolo. Em qualquer outro formato o
-  // campo fica em branco (exibido como "não encontrado") em vez de chutar.
-  if (!prot) return '';
-  return prot[1].split(PARADA)[0].trim().replace(/[-–\s]+$/, '');
+  if (prot) {
+    bruto = prot[1].split(PARADA)[0].trim();
+  } else {
+    const m = texto.match(/\bCLIENTE\s*[:\-–]\s*(.{3,80})/i);
+    if (m) {
+      bruto = m[1].split(PARADA)[0].trim();
+    }
+  }
+  if (!bruto) return '';
+
+  return bruto
+    .replace(/^(?:CLIENTE|NOME|RAZ[ÃA]O\s+SOCIAL)?\s*[:\-–\/]\s*/i, '')
+    .replace(/^[:\-–\/\s]+/, '')
+    .replace(/[-–\/\s]+$/, '')
+    .trim();
 }
 
 // Procura na lista de pedidos carregada a O.S correspondente a uma GAP lida do
@@ -492,7 +529,7 @@ const PDF_CAMPOS = [
   { chave: 'GAP', re: /\bGAP\s*[-–:]?\s*(\d{3,8})/i, formata: v => 'GAP-' + v },
   // "Pedido de Compra" e "Nº do Pedido" são o mesmo campo no PDF; idem
   // "Valor Faturado" e "Valor Líquido" — por isso cada um é um único item aqui.
-  { chave: 'Pedido de Compra', re: /(?:pedido\s+de\s+compra|n[úu]mero\s+do\s+pedido|n[ºo°]\s*(?:do\s*)?pedido|pedido\s*n[ºo°])\s*[:\-]?\s*([A-Za-z0-9\/\-]{4,20})/i },
+  { chave: 'Pedido de Compra', extrai: extrairPedido },
   { chave: 'Valor Faturado', extrai: extrairValorLiquido },
   // A data do pedido vem logo abaixo do "Nº do Pedido", rotulada "Data:" e com
   // pontos (18.04.2026). Prioriza o campo rotulado; só cai para "qualquer data
