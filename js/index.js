@@ -1,11 +1,14 @@
 // Colunas exatas da planilha original (na ordem). "Cobrança Medição" foi removida:
 // não é relevante para o time e não é lida nem gravada pelo app.
 const COLUMNS = [
-  "O.S", "Mês Envio Medição", "Vistoria Projeto", "Ano", "GAP", "Envio Medição",
+  "O.S", "Cliente", "Mês Envio Medição", "Vistoria Projeto", "Ano", "GAP", "Envio Medição",
   "Sla Envio Medição", "Valor Medição Enviadas", "Engenheiro Acesso", "Projetista",
   "Regional", "Pedido de Compra", "Valor Faturado", "Medição Terceiros",
   "Custos Diversos", "Custo ART", "Custo Total"
 ];
+
+// Ordem física da planilha de origem: não tem a coluna "Cliente".
+const COLUNAS_PLANILHA = COLUMNS.filter(c => c !== 'Cliente');
 
 const CURRENCY_COLS = new Set([
   "Valor Medição Enviadas", "Valor Faturado", "Medição Terceiros", "Custos Diversos", "Custo ART", "Custo Total"
@@ -14,7 +17,7 @@ const DATE_COLS = new Set(["Vistoria Projeto", "Envio Medição"]);
 // Colunas de texto/código normalizadas para MAIÚSCULO em todo cadastro e
 // importação — datas e valores numéricos ficam de fora.
 const COLS_MAIUSCULAS = new Set([
-  "O.S", "Mês Envio Medição", "GAP", "Engenheiro Acesso", "Projetista", "Regional", "Pedido de Compra"
+  "O.S", "Cliente", "Mês Envio Medição", "GAP", "Engenheiro Acesso", "Projetista", "Regional", "Pedido de Compra"
 ]);
 
 let workbook = null;
@@ -379,11 +382,16 @@ function normalizarOs(v) {
 function construirLinhas(ws, json, headerIdx) {
   const linhas = [];
   let ultimaLinha = headerIdx;
+  const cabecalho = (json[headerIdx] || []).map(c => (c === null || c === undefined) ? '' : String(c).trim());
   for (let i = headerIdx + 1; i < json.length; i++) {
     const r = json[i];
     if (!r || r.every(c => c === null || c === undefined || c === '')) continue;
     const obj = {};
-    COLUMNS.forEach((col, idx) => {
+    COLUMNS.forEach(col => {
+      // Planilha de origem não tem "Cliente"; planilhas já exportadas têm.
+      const porNome = cabecalho.indexOf(col);
+      const idx = porNome !== -1 ? porNome : COLUNAS_PLANILHA.indexOf(col);
+      if (idx === -1) { obj[col] = null; return; }
       const val = r[idx] !== undefined ? r[idx] : null;
       const lida = valorCelulaComPadding(ws, i, idx, col, val);
       const norm = (COLS_MAIUSCULAS.has(col) && typeof lida === 'string') ? lida.toUpperCase() : lida;
@@ -495,7 +503,7 @@ let arquivoImportPendente = null;
 // Colunas consideradas na comparação de duplicidade "por campos em comum"
 // (ex.: mesma O.S. ou mesmo Pedido de Compra já são fortes indícios; exclui
 // "Custo Total" por ser derivado automaticamente de outros campos).
-const CAMPOS_COMPARACAO_DUP = COLUMNS.filter(c => c !== 'Custo Total');
+const CAMPOS_COMPARACAO_DUP = COLUMNS.filter(c => c !== 'Custo Total' && c !== 'Cliente');
 
 function valorComparavel(v) {
   if (v === null || v === undefined || v === '') return null;
@@ -1302,6 +1310,17 @@ async function sincronizarComPedidos({ avisar = true } = {}) {
     const p = pedidoDaMedicao(row, idx);
     if (!p) return;
     let mudou = false;
+    // Cliente: o Controle de Pedidos é a referência e sobrescreve se diferir.
+    if (!campoVazio(p['Cliente'])) {
+      const cli = String(p['Cliente']).trim().toUpperCase();
+      if (row['Cliente'] !== cli) {
+        row['Cliente'] = cli;
+        mudou = true;
+        campos++;
+        if (!row.__sincronizados) row.__sincronizados = [];
+        if (!row.__sincronizados.includes('Cliente')) row.__sincronizados.push('Cliente');
+      }
+    }
     CAMPOS_PEDIDO_MEDICAO.forEach(({ pedido, medicao }) => {
       if (!campoVazio(row[medicao])) return; // nunca sobrescreve o que já existe
       const origem = p[pedido];
@@ -1338,6 +1357,60 @@ async function sincronizarComPedidos({ avisar = true } = {}) {
   }
   return alteradas;
 }
+
+// Grava o Cliente da medição nos pedidos de mesma O.S no autosave de Pedidos
+// (manualRows direto; linhas do arquivo viram linhasEditadas).
+async function propagarClienteParaPedidos(row) {
+  const os = soDigitos(row['O.S']);
+  const cli = campoVazio(row['Cliente']) ? '' : String(row['Cliente']).trim().toUpperCase();
+  if (!os) return;
+  try {
+    const db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('pedidos_autosave', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('estado');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    const estado = await new Promise((resolve, reject) => {
+      const req = db.transaction('estado', 'readonly').objectStore('estado').get('atual');
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+    if (!estado) return;
+    const alvo = p => p && typeof p === 'object' && soDigitos(p['O.S']) === os;
+    let mudou = false;
+    const manuais = Array.isArray(estado.manualRows) ? estado.manualRows : [];
+    manuais.filter(alvo).forEach(p => {
+      if ((p['Cliente'] || '') !== cli) { p['Cliente'] = cli || null; mudou = true; }
+    });
+    // Linhas do arquivo original: parte de lerPedidosDoControle() (já aplica
+    // exclusões/edições) e registra a alteração em linhasEditadas.
+    const editadas = Array.isArray(estado.linhasEditadas) ? estado.linhasEditadas : [];
+    const doArquivo = (await lerPedidosDoControle()).filter(p => p.__linha !== undefined && alvo(p));
+    doArquivo.forEach(p => {
+      if ((p['Cliente'] || '') === cli) return;
+      const copia = { ...p, 'Cliente': cli || null };
+      const pos = editadas.findIndex(e => e.__linha === p.__linha);
+      if (pos !== -1) editadas[pos] = copia; else editadas.push(copia);
+      mudou = true;
+    });
+    if (!mudou) return;
+    estado.manualRows = manuais;
+    estado.linhasEditadas = editadas;
+    estado.savedAt = Date.now();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('estado', 'readwrite');
+      tx.objectStore('estado').put(estado, 'atual');
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.error('Falha ao propagar Cliente para o Controle de Pedidos:', err);
+  }
+}
+
+// Ao voltar para esta aba, puxa o Cliente que foi alterado em Pedidos.
+window.addEventListener('focus', () => { sincronizarComPedidos({ avisar: false }); });
 
 // --- Lixeira -----------------------------------------------------------------
 // Excluir NÃO apaga o registro: move para a aba "Lixeira", onde ele fica por
@@ -1430,6 +1503,7 @@ function openFormParaEdicao(row) {
   formMsg.className = '';
 
   document.getElementById('f_os').value = row['O.S'] ?? '';
+  document.getElementById('f_cliente').value = row['Cliente'] ?? '';
   document.getElementById('f_mes').value = row['Mês Envio Medição'] || 'Janeiro';
   document.getElementById('f_vistoria').value = toDateInputValue(row['Vistoria Projeto']);
   document.getElementById('f_ano').value = row['Ano'] ?? new Date().getFullYear();
@@ -1526,6 +1600,7 @@ function salvarMedicao() {
 
   const dadosForm = {
     "O.S": os,
+    "Cliente": document.getElementById('f_cliente').value.trim().toUpperCase(),
     "Mês Envio Medição": document.getElementById('f_mes').value.toUpperCase(),
     "Vistoria Projeto": document.getElementById('f_vistoria').value ? new Date(document.getElementById('f_vistoria').value + 'T00:00:00') : null,
     "Ano": parseInt(document.getElementById('f_ano').value) || new Date().getFullYear(),
@@ -1571,7 +1646,7 @@ function salvarMedicao() {
     // Confere na hora se o Controle de Pedidos já tem o que falta nessa medição
     // (antes só rodava no import/autosave/leitura de PDF — cadastro e edição
     // manuais ficavam esperando o próximo refresh pra serem complementados).
-    sincronizarComPedidos({ avisar: false });
+    propagarClienteParaPedidos(editingRow).then(() => sincronizarComPedidos({ avisar: false }));
   } else {
     const novaLinha = { ...dadosForm, __isNew: true };
     rows.push(novaLinha);
@@ -1582,7 +1657,7 @@ function salvarMedicao() {
     closeForm();
     document.getElementById('tableWrap').scrollTop = document.getElementById('tableWrap').scrollHeight;
     agendarAutosave();
-    sincronizarComPedidos({ avisar: false });
+    propagarClienteParaPedidos(novaLinha).then(() => sincronizarComPedidos({ avisar: false }));
   }
 }
 
@@ -1884,7 +1959,7 @@ function centralizarCelulas(ws) {
 
 // Larguras de coluna originais da planilha, indexadas por COLUMNS.
 const LARGURAS_COLUNAS = [
-  23.608073, 22.166667, 19.053385, 9.053385,
+  23.608073, 30, 22.166667, 19.053385, 9.053385,
   19.498698, 18.166667, 21.276042, 26.608073,
   22.053385, 19.608073, 13.166667, 21.276042,
   18.608073, 21.608073, 19.385417, 14.166667,

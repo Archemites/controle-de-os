@@ -98,6 +98,8 @@ function abrirAutosaveDB() {
   });
 }
 
+let ultimoAutosaveProprio = 0;
+
 async function salvarAutosave() {
   if (!workbook || !originalFileBytes) return;
   try {
@@ -107,6 +109,7 @@ async function salvarAutosave() {
       linhasExcluidas: [...linhasExcluidas], linhasEditadas, lixeira,
       savedAt: Date.now()
     };
+    ultimoAutosaveProprio = estado.savedAt;
     await new Promise((resolve, reject) => {
       const tx = db.transaction(AUTOSAVE_STORE, 'readwrite');
       tx.objectStore(AUTOSAVE_STORE).put(estado, AUTOSAVE_KEY);
@@ -701,6 +704,7 @@ pdfUsarBtn.addEventListener('click', () => {
       manualRows = estado.manualRows;
       rows.push(...manualRows);
     }
+    ultimoAutosaveProprio = estado.savedAt || 0;
     const dataSalva = new Date(estado.savedAt).toLocaleString('pt-BR');
     fileStatus.textContent = `Sessão restaurada automaticamente: "${estado.fileName}" — ${rows.length} pedidos (autosave de ${dataSalva}).`;
     renderTable();
@@ -708,6 +712,24 @@ pdfUsarBtn.addEventListener('click', () => {
     console.error('Falha ao restaurar autosave:', err);
   }
 })();
+
+// Cliente alterado na aba de Medições grava no mesmo autosave: ao voltar para
+// esta aba, recarrega se o registro for mais novo que o último salvo aqui.
+window.addEventListener('focus', async () => {
+  const estado = await carregarAutosave();
+  if (!estado || !estado.fileBytes || !(estado.savedAt > ultimoAutosaveProprio)) return;
+  try {
+    carregarWorkbookDeBytes(estado.fileBytes, estado.fileName, estado.linhasExcluidas || [], estado.linhasEditadas || [], estado.lixeira || []);
+    if (Array.isArray(estado.manualRows) && estado.manualRows.length) {
+      manualRows = estado.manualRows;
+      rows.push(...manualRows);
+    }
+    ultimoAutosaveProprio = estado.savedAt;
+    renderTable();
+  } catch (err) {
+    console.error('Falha ao recarregar autosave:', err);
+  }
+});
 
 // --- Formatação ---------------------------------------------------------------
 function valorNumerico(v) {
